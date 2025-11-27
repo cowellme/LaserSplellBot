@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using System.Threading.Channels;
 
 namespace LaserSplellBot
 {
@@ -56,6 +57,93 @@ namespace LaserSplellBot
 
             return false;
         }
+
+        public static async Task<List<User>?> GetUsers()
+        {
+            await using var db = new ApplicationContext();
+
+            try
+            {
+                return db.Users.ToList();
+            }
+            catch (Exception e)
+            {
+                await db.DisposeAsync();
+                Console.WriteLine(e);
+                return null;
+            }
+            
+        }
+
+        public static async Task<List<Channel>?> GetChannel(long chatId)
+        {
+            await using var db = new ApplicationContext();
+
+            try
+            {
+                return db.Channels.ToList();
+            }
+            catch (Exception e)
+            {
+                await db.DisposeAsync();
+                Console.WriteLine(e);
+                return null;
+            }
+        }
+
+        public static async Task UpdUser(User user)
+        {
+            await using var db = new ApplicationContext();
+
+            try
+            {
+                db.Users.Update(user);
+                await db.SaveChangesAsync();
+            }
+            catch (Exception e)
+            {
+                await db.DisposeAsync();
+                Console.WriteLine(e);
+                throw;
+            }
+        }
+
+        public static async Task<User?> GetUser(long chatId)
+        {
+            await using var db = new ApplicationContext();
+
+            try
+            {
+                return await db.Users.FirstOrDefaultAsync(x => x.ChatId == chatId);
+            }
+            catch (Exception e)
+            {
+                await db.DisposeAsync();
+                Console.WriteLine(e);
+                return null;
+            }
+        }
+
+        public static async Task AddUser(User user)
+        {
+            await using var db = new ApplicationContext();
+
+            try
+            {
+                await db.Users.AddAsync(user);
+                await db.SaveChangesAsync();
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+                throw;
+            }
+        }
+
+        public static async Task AddPost(Post post)
+        {
+            throw new NotImplementedException();
+        }
     }
 
     public class Channel    
@@ -69,17 +157,20 @@ namespace LaserSplellBot
     public class Post
     {
         public int Id { get; set; }
-        public DateTime DateCreated { get; set; }
-        public DateTime DateDelete { get; set; }
+        public DateTime? DateCreated { get; set; }
+        public DateTime? DateDelete { get; set; }
         public string Text { get; set; } = string.Empty;
         public string ButtonText { get; set; } = string.Empty;
         public long AuthorChatId { get; set; }
+        public string PhotoId { get; set; } = string.Empty;
+
     }
 
     public class User
     {
         public int Id { get; set; }
-        public long ChatId { get; set; } 
+        public long ChatId { get; set; }
+        public bool PostCreate { get; set; } = false;
         public Role Role { get; set; } = Role.User;
         public string Name { get; set; } = string.Empty;
         public DateTime DateCreated { get; set; } = DateTime.UtcNow;

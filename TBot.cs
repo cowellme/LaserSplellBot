@@ -7,22 +7,27 @@ using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
+using User = LaserSplellBot.User;
 
 namespace JobBe;
 
 // ReSharper disable once InconsistentNaming
 public class TBot
 {
-    private readonly IServiceProvider _serviceProvider;
     private readonly TelegramBotClient? _bot;
-    //private readonly AiApi _ai;
-
+    private static List<Post> _posts = new List<Post>();
     public TBot(string token)
     {
         _bot = new TelegramBotClient(token);
         var cts = new CancellationTokenSource();
         var cancellationToken = cts.Token;
-        var receiverOptions = new ReceiverOptions { AllowedUpdates = { }, };
+        UpdateType[] allowUpdate =
+        {
+            UpdateType.ChannelPost,
+            UpdateType.Message,
+            UpdateType.CallbackQuery
+        };
+        var receiverOptions = new ReceiverOptions { AllowedUpdates = allowUpdate, };
         _bot.StartReceiving(HandleUpdateAsync, HandleErrorAsync, receiverOptions, cancellationToken);
        
     }
@@ -57,6 +62,7 @@ public class TBot
     {
         var chatId = channelPost.Chat.Id;
         var message = channelPost.Text;
+        var url = channelPost.Chat.Username ?? String.Empty;
 
         try
         {
@@ -73,12 +79,13 @@ public class TBot
 
                 if (await ApplicationContext.NewChannel(channel))
                 {
-                    KeyboardButton button = new KeyboardButton("Запустить розыгрыш");
-                    ReplyMarkup buttons = new ReplyKeyboardMarkup(new []
-                    {
-                        button
-                    });
-                    await _bot.SendMessage(chatId, $"Под вашу эгиду добавлен чат {title}", replyMarkup: buttons);
+                    KeyboardButton buttonCreate = new KeyboardButton("Запустить розыгрыш");
+                    KeyboardButton buttonPublic = new KeyboardButton("Опубликовать");
+
+
+                    ReplyMarkup buttons = new ReplyKeyboardMarkup(buttonCreate, buttonPublic);
+                    
+                    await _bot.SendMessage(adminChatId, $"Под вашу эгиду добавлен чат {url}", replyMarkup: buttons);
                 }
             }
         }
@@ -119,31 +126,122 @@ public class TBot
 
         try
         {
+            var chatId = update.Message.Chat.Id;
+            var user = chatId > 0 ? await ApplicationContext.GetUser(chatId) : null;
+
+            if (user is {PostCreate: true})
+            {
+                var post = _posts.FirstOrDefault(x => x.AuthorChatId == user.ChatId);
+
+                if (post != null)
+                {
+                    PostCreate(user, update, post);
+
+                    if (post.PhotoId != string.Empty && post.Text != string.Empty && post.ButtonText != string.Empty)
+                    {
+
+                        await _bot.SendMessage(user.ChatId, "Пример поста");
+                        ReplyMarkup inlineButton = new []
+                        {
+                            new InlineKeyboardButton(post.ButtonText, post.Id.ToString()),
+                            new InlineKeyboardButton("Сохранить", post.Id.ToString()),
+
+                        };
+                        //await ApplicationContext.AddPost(post);
+                        await _bot.SendPhoto(user.ChatId, InputFile.FromFileId(post.PhotoId), post.Text, replyMarkup: inlineButton);
+                    }
+                }
+            }
+
             if (update.Message == null) return;
             if (string.IsNullOrEmpty(update.Message.Text)) return;
-
             var message = update.Message.Text!.ToLower();
-            var chatId = update.Message.Chat.Id;
 
-            if (message == "/start")
+
+
+            if (user != null)
             {
-                await _bot!.SendMessage(chatId, "Привет!");
+                
+
+                
+
+                if (message == "/id")
+                {
+                    await _bot!.SendMessage(chatId, $"{chatId}");
+                }
+
+                if (message == "запустить розыгрыш")
+                {
+                    await _bot.SendMessage(user.ChatId, "Пришли текст поста");
+                    var newPost = new Post
+                    {
+                        AuthorChatId = user.ChatId,
+                        ButtonText = string.Empty,
+                        DateCreated = null,
+                        DateDelete = null,
+                        Text = string.Empty,
+                    };
+                    user.PostCreate = true;
+                    _posts.Add(newPost);
+                    await ApplicationContext.UpdUser(user);
+                }
             }
+            else
+            {
+                if (message == "/start")
+                {
+                    user = new User
+                    {
+                        ChatId = chatId,
+                        DateCreated = DateTime.UtcNow,
+                        Name = update.Message.Chat.FirstName ?? "none",
+
+                    };
+                    await _bot!.SendMessage(chatId, "Привет!");
+                    await ApplicationContext.AddUser(user);
+                }
+            }
+
             
-            if (message == "/id")
-            {
-                await _bot!.SendMessage(chatId, $"{chatId}");
-            }
-
-            if (message == "/game")
-            {
-                await _bot!.SendMessage(chatId, "Привет!");
-            }
         }
         catch (Exception e)
         {
             Console.WriteLine(e.Message);
             throw;
+        }
+    }
+
+    private void PostCreate(User user, Update update, Post? post)
+    {
+        if (post != null)
+        {
+            if (post.Text == string.Empty)
+            {
+                var message = update.Message!.Text ?? "Ошибка!";
+                post.Text = message;
+                _bot.SendMessage(post.AuthorChatId, "Пришли название кнопки");
+                return;
+            }
+
+            if (post.ButtonText == string.Empty)
+            {
+                var message = update.Message!.Text ?? "Ошибка!";
+                post.ButtonText = message;
+                _bot.SendMessage(post.AuthorChatId, "Пришли фото для поста");
+                return;
+            }
+
+            if (update.Message.Photo != null)
+            {
+                var photoId = update.Message.Photo.First().FileId;
+                if (post.PhotoId == string.Empty) 
+                {
+                    var message = update.Message!.Text ?? "Ошибка!";
+                    post.PhotoId = photoId;
+                    return;
+                }
+            }
+
         }
     }
 
